@@ -1,0 +1,112 @@
+default:
+  tags:
+    - runner-alpine
+
+variables:
+  DOCKER_TLS_CERTDIR: ""
+
+stages:
+  - initialize
+  - copy_plugins
+  - sync_s3
+  - success
+  - failure
+
+initialize:
+  stage: initialize
+  script:
+    - env | sort
+  rules:
+    - if: '$CI_COMMIT_BRANCH=="dev" || $CI_COMMIT_BRANCH=="prd"'
+
+copy_plugins:
+  stage: copy_plugins
+  image: python:3.11-alpine
+  before_script:
+    - apk --no-cache add tzdata git curl jq yq zip
+    - pip3 install awscli
+  script:
+    - cd $CI_PROJECT_DIR/plugins
+    - zip plugins.zip *
+    - |
+      echo "Determining IAM Role based on branch..."
+
+      if [ "$CI_COMMIT_BRANCH" = "dev" ]; then
+        ROLE_ARN="$DEV_IAMROLE"
+        BUCKET=s3://dev-acme-mwaa
+      elif [ "$CI_COMMIT_BRANCH" = "prd" ]; then
+        ROLE_ARN="$PRD_IAMROLE"
+        BUCKET=s3://prd-acme-mwaa
+      else
+        echo "Unsupported branch: $CI_COMMIT_BRANCH"
+        exit 1
+      fi
+      echo "Using IAM Role ARN: $ROLE_ARN"
+
+      ROLE_CREDS=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name GitLabCI_Session)
+
+      export AWS_ACCESS_KEY_ID=$(echo "$ROLE_CREDS" | jq -r '.Credentials.AccessKeyId')
+      export AWS_SECRET_ACCESS_KEY=$(echo "$ROLE_CREDS" | jq -r '.Credentials.SecretAccessKey')
+      export AWS_SESSION_TOKEN=$(echo "$ROLE_CREDS" | jq -r '.Credentials.SessionToken')
+
+      echo "Syncing plugins.zip to $BUCKET"
+      aws s3 cp plugins.zip $BUCKET/plugins/plugins.zip
+  rules:
+    - if: '$CI_COMMIT_BRANCH=="dev" || $CI_COMMIT_BRANCH=="prd"'
+      changes:
+        - plugins/**/*
+    - when: never
+
+sync_s3:
+  stage: sync_s3
+  image: python:3.11-alpine
+  before_script:
+    - apk --no-cache add tzdata git curl jq yq zip
+    - pip3 install awscli
+  script:
+    - |
+      echo "$CI_PROJECT_DIR"
+      ls "$CI_PROJECT_DIR"
+      echo "Determining IAM Role based on branch..."
+      if [ "$CI_COMMIT_BRANCH" = "dev" ]; then
+        ROLE_ARN="$DEV_IAMROLE"
+        BUCKET=s3://dev-acme-mwaa
+      elif [ "$CI_COMMIT_BRANCH" = "prd" ]; then
+        ROLE_ARN="$PRD_IAMROLE"
+        BUCKET=s3://prd-acme-mwaa
+      else
+        echo "Unsupported branch: $CI_COMMIT_BRANCH"
+        exit 1
+      fi
+      echo "Using IAM Role ARN: $ROLE_ARN"
+
+      ROLE_CREDS=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name GitLabCI_Session)
+
+      export AWS_ACCESS_KEY_ID=$(echo "$ROLE_CREDS" | jq -r '.Credentials.AccessKeyId')
+      export AWS_SECRET_ACCESS_KEY=$(echo "$ROLE_CREDS" | jq -r '.Credentials.SecretAccessKey')
+      export AWS_SESSION_TOKEN=$(echo "$ROLE_CREDS" | jq -r '.Credentials.SessionToken')
+
+      echo "Syncing S3 Bucket: $BUCKET"
+
+      aws s3 sync $CI_PROJECT_DIR/dags $BUCKET/dags \
+        --exclude ".git/*" --exclude ".gitlab-ci.yml" --exclude ".gitignore" --exclude "README.md" --delete
+      aws s3 sync $CI_PROJECT_DIR/requirements $BUCKET/requirements \
+        --exclude ".git/*" --exclude ".gitlab-ci.yml" --exclude ".gitignore" --exclude "README.md"
+  rules:
+    - if: '$CI_COMMIT_BRANCH=="dev" || $CI_COMMIT_BRANCH=="prd"'
+
+success_job:
+  stage: success
+  script:
+    - echo "Success."
+  rules:
+    - if: '$CI_COMMIT_BRANCH=="dev" || $CI_COMMIT_BRANCH=="prd"'
+  when: on_success
+
+failure_job:
+  stage: failure
+  script:
+    - echo "Failure."
+  rules:
+    - if: '$CI_COMMIT_BRANCH=="dev" || $CI_COMMIT_BRANCH=="prd"'
+  when: on_failure

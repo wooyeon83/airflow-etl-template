@@ -1,0 +1,50 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+.env
+.airflow/
+
+# --- Airflow local run ---
+airflow.db
+airflow.cfg
+webserver_config.py
+logs/
+
+# --- IDE / Claude Code ---
+.idea/
+.vscode/
+*.iml
+.claude/
+CLAUDE.md
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- AWS / secrets ---
+.aws/
+*.pem
+*.key
+*.env.*
+
+# --- Plugins build artifacts ---
+plugins/plugins.zip
